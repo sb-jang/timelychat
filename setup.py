@@ -5,8 +5,8 @@ setup(
     version="0.0.1",
     description="python template repository",
     install_requires=[],
-    url="https://github.com/sb-jang/python-39-template.git",
-    author="Seongbo Jang",
-    author_email="jang.sb@postech.ac.kr",
+    url="https://github.com/anonymous/python-39-template.git",
+    author="Anonymous",
+    author_email="anonymous",
     packages=find_packages(exclude=["tests"]),
 )
