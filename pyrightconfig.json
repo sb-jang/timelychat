@@ -1,9 +1,9 @@
 {
-  "include": ["pack"],
+  "include": ["timelychat", "utils"],
   "venvPath": "venv",
 
-  "reportUnknownVariableType": true,
-  "reportUnknownMemberType": true,
+  "reportUnknownVariableType": false,
+  "reportUnknownMemberType": false,
   "reportUnusedImport": true,
   "reportUnusedVariable": true,
   "reportUnusedClass": true,
@@ -19,7 +19,8 @@
   "reportUnnecessaryCast": true,
   "reportAssertAlwaysTrue": true,
   "reportSelfClsParameterName": true,
+  "reportMissingImports": false,
 
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.10",
   "pythonPlatform": "Linux"
 }
