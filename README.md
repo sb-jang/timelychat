@@ -4,11 +4,11 @@ This is the official repository for "From what to respond to when to respond: Ti
 
 ## Data
 
-TimelyChat dataset (both train and evaluation sets) is available on [🤗Datasets Hub](https://huggingface.co/datasets/anonymous17711771/timelychat).
+TimelyChat dataset (both train and evaluation sets) is available on [🤗Datasets Hub](https://huggingface.co/datasets/seongbo/timelychat).
 
 ## Checkpoint
 
-Timer-3B trained on TimelyChat-train is available on [🤗Model Hub](https://huggingface.co/anonymous17711771/timer-3b).
+Timer-3B trained on TimelyChat-train is available on [🤗Model Hub](https://huggingface.co/seongbo/timer-3b).
 
 ## Usage
 
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ```
 python evaluate_turn-level.py --model-type hf \
-    --model-name anonymous17711771/timer-3b \
+    --model-name seongbo/timer-3b \
     --task time \
     --icl-method zeroshot \
     --save-results
@@ -36,7 +36,7 @@ python evaluate_turn-level.py --model-type hf \
 
 ```
 python evaluate_dialog-level.py --model-type hf \
-    --model-name anonymous17711771/timer-3b \
+    --model-name seongbo/timer-3b \
     --simulator gpt-4o \
     --num-turns 10
 ```
