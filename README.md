@@ -1,6 +1,6 @@
 # Timely Response Generation for Open-domain Dialogue Agents
 
-This is the official repository for "From what to respond to when to respond: Timely Response Generation for Open-domain Dialogue Agents".
+This is the official repository for "[From what to respond to when to respond: Timely Response Generation for Open-domain Dialogue Agents](https://www.arxiv.org/abs/2506.14285)".
 
 ## Data
 
@@ -39,4 +39,14 @@ python evaluate_dialog-level.py --model-type hf \
     --model-name seongbo/timer-3b \
     --simulator gpt-4o \
     --num-turns 10
+```
+
+## Citation
+```bibtex
+@article{jang2025respond,
+  title={From What to Respond to When to Respond: Timely Response Generation for Open-domain Dialogue Agents},
+  author={Jang, Seongbo and Jeon, Minjin and Lee, Jaehoon and Lee, Seonghyeon and Lee, Dongha and Yu, Hwanjo},
+  journal={arXiv preprint arXiv:2506.14285},
+  year={2025}
+}
 ```
