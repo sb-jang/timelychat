@@ -1,7 +1,7 @@
 # ⏰ TIMER: A Dialog Agent for Timely Responses
 
 <p align="center">
-  <img src="assets/task.png" alt="What is a timely response?" style="max-width:60%; height:auto;"/>
+  <img src="assets/task.png" alt="What is a timely response?" width="400"/>
 </p>
 
 
@@ -103,8 +103,8 @@ tokenizer = AutoTokenizer.from_pretrained("anonymous17711771/timer-3b")
 
 #### Time-conditioned Response Generation
 
-| Model | BLEU-2 ↑ | ROUGE-L ↑ | BERTScore ↑ | Naturalness ↑ | Time Specificity ↑ |
-|-------|----------|-----------|-------------|---------------|--------------------|
+| Model | BLEU-2 | ROUGE-L | BERTScore | Naturalness | Time Specificity |
+|-------|--------|---------|-----------|-------------|------------------|
 | Llama-3.1 8B | 5.38 | 12.38 | 86.21 | 2.24 | 2.78 |
 | Llama-3.1 70B | 6.84 | 12.71 | 85.90 | 2.86 | 2.35 |
 | GPT-3.5 | 9.97 | 17.13 | 87.54 | 4.26 | 2.86 |
@@ -113,8 +113,8 @@ tokenizer = AutoTokenizer.from_pretrained("anonymous17711771/timer-3b")
 
 ### Dialog-level Evaluation
 
-| Model | Coherence ↑ | Delay Appropriateness ↑ | Time Specificity ↑ |
-|-------|-------------|-------------------------|--------------------|
+| Model | Coherence | Delay Appropriateness | Time Specificity |
+|-------|-----------|-----------------------|------------------|
 | Llama 3.1 8B | 2.97 | 2.38 | 2.30 |
 | Llama 3.1 70B | 3.29 | 2.50 | 2.35 |
 | GPT-3.5 | 3.17 | 1.86 | 1.13 |
@@ -143,7 +143,7 @@ Head-to-head comparison of TIMER-3B vs. GPT-4o (Win: TIMER-3B wins)
 ### Example Conversations
 
 <p align="center">
-  <img src="assets/examples.png" alt="Case Study" style="max-width:90%; height:auto;"/>
+  <img src="assets/examples.png" alt="Case Study" width="700"/>
 </p>
 
 ## 🚀 Quick Start
