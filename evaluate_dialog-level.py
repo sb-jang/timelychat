@@ -85,7 +85,7 @@ def simulate_conversation(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-type", type=str, required=True, choices=["vllm", "openai", "hf"])
+    parser.add_argument("--model-type", type=str, required=True, choices=["vllm", "openai", "anthropic", "hf"])
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--simulator", type=str, default="gpt-4o")
     parser.add_argument("--num-turns", type=int, default=10)

@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -11,6 +11,12 @@ class Output(BaseModel):
 class CoTOutput(BaseModel):
     reasoning: str
     answer: str
+
+
+# response format for llm-as-a-judge
+class Evaluation(BaseModel):
+    score: int
+    explanation: str
 
 
 desc_time = """You are given a conversation between two speakers.
@@ -187,3 +193,83 @@ def get_instruction(task: str, icl_method: str) -> Tuple[str, str]:
             raise ValueError(f"Invalid ICL method: {icl_method}")
     else:
         raise ValueError(f"Invalid task: {task}")
+
+
+turn_level_system_template = """You will be given a conversation between two individuals via messaging, along with the elapsed time since the last utterance.
+You will then be given a potential response for the next turn.
+Your task is to rate the response on one metric. Please make sure you read and understand these instructions carefully.
+
+Evaluation Criteria:
+{metric} (1-5): {criteria}
+
+Evaluation Steps:
+{steps}"""
+
+dialog_level_system_template = """You will be given a conversation between a dialogue agent and a user.
+Throughout the conversation, the agent proactively determines the delay of its response to the user's previous message, simulating delayed responses due to event experiences that take certain time to process.
+At each agent's turn, the delay is provided in the parentheses followed by the message. If no parentheses are provided, it means the agent responded immediately.
+Your task is to rate the dialogue agent on one metric. Please make sure you read and understand these instructions carefully.
+
+Evaluation Criteria:
+{metric} (1-5): {criteria}
+
+Evaluation Steps:
+{steps}"""
+
+turn_level_user_template = """### Dialogue Context ###
+{context}
+
+### Elapsed Time ###
+{time_elapsed}
+
+### Model Response ###
+{response}"""
+
+turn_level_rubrics = [
+    {
+        "metric": "Naturalness",
+        "criteria": "the extent to which the response reads naturally given the dialogue context.",
+        "steps": "1. Assess the flow and coherence of the response in the conversation: Consider how seamlessly the response connects with the previous message.\n2. Evaluate the tone and style compatibility: Determine if the response's tone and style match those of the previous messages.\n3. Rate on a scale from 1 to 5, where 1 indicates the response is unnatural or inappropriate, and 5 indicates a perfectly natural continuation of the conversation.",
+    },
+    {
+        "metric": "Time-Specificity",
+        "criteria": "the extent to which the response ONLY makes sense when the specified time has passed, contrary to a time-agnostic response that makes sense regardless of time.",
+        "steps": "1. Read the provided conversation and take note of the elapsed time since the previous message.\n2. Consider the context of the conversation, focusing on how the passage of time might affect the relevance or appropriateness of the resopnse.\n3. Evaluate whether the potential response provided is time-specific. That is, determine if the response directly relates to or is clearly influenced by the elapsed time between the last utterance and the response.",
+    },
+]
+
+dialog_level_rubrics = [
+    {
+        "metric": "Coherence",
+        "criteria": "the extent to which the agent maintains a good conversation flow.",
+        "steps": "1. Assess the flow and coherence of the agent's responses in the conversation.\n2. Evaluate the tone and style compatibility throughout the conversation.\n3. Rate on a scale from 1 to 5, where 1 indicates the agent's responses are incoherent or inappropriate, and 5 indicates the agent's responses are perfectly coherent and appropriate.",
+    },
+    {
+        "metric": "Delay-Appropriateness",
+        "criteria": "the extent to which the agent poses delays with appropriate frequency and duration.",
+        "steps": "1. Assess whether the agent poses unnecessary or excessively frequent delays that could harm the conversation flow.\n2. Evaluate whether the amounts of delays (if not 0 minutes) reflect the typical duration of events implied in the corresponding message.\n3. Rate on a scale from 1 to 5, where 1 indicates the agent overuses and misuses delays, and 5 indicates the agent uses delays appropriately in terms of frequency and duration.",
+    },
+    {
+        "metric": "Time-Specificity",
+        "criteria": "the extent to which the agent's responses ONLY make sense when the specified time has passed, contrary to a time-agnostic responses that make sense regardless of time.",
+        "steps": "1. Read the provided conversation and take note of the elapsed times since the previous messages.\n2. Consider the context of the conversation, focusing on how the passage of time might affect the relevance or appropriateness of the agent's responses.\n3. Evaluate whether the agent's responses are time-specific. That is, determine if the responses directly relate to or are clearly influenced by the elapsed times.\n4. Rate on a scale from 1 to 5, where 1 indicates the agent's responses are completely time-agnostic and unaffected by the passage of time, and 5 indicates the agent's responses are entirely time-specific; they only make sense because of the amount of time that has passed since the previous message.",
+    },
+]
+
+
+def get_laaj_prompts(setting: str) -> Tuple[str, Optional[str]]:
+    if setting == "turn-level":
+        return turn_level_system_template, turn_level_user_template
+    elif setting == "dialog-level":
+        return dialog_level_system_template, None
+    else:
+        raise ValueError(f"Invalid setting: {setting}")
+
+
+def get_laaj_rubrics(setting: str) -> List[Dict[str, str]]:
+    if setting == "turn-level":
+        return turn_level_rubrics
+    elif setting == "dialog-level":
+        return dialog_level_rubrics
+    else:
+        raise ValueError(f"Invalid setting: {setting}")

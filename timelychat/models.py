@@ -1,8 +1,10 @@
 import json
 import os
 import random
+import re
 from typing import Dict, List, Optional, Tuple, Union
 
+import anthropic
 import pydantic
 import torch
 from openai import OpenAI
@@ -39,6 +41,7 @@ def get_model(
     model_classes = {
         "vllm": VLLMModel,
         "openai": OpenAIModel,
+        "anthropic": AnthropicModel,
         "hf": HfModel,
     }
     return model_classes[model_type](model_name, fewshot_examples=fewshot_examples, **kwargs)
@@ -229,6 +232,93 @@ class OpenAIModel(BaseModel):
                 continue
 
 
+class AnthropicModel(BaseModel):
+    def __init__(self, model_name: str, fewshot_examples: List[Dict[str, Union[str, List[str]]]], **kwargs):
+        super().__init__(model_name)
+        self.fewshot_examples = self._make_fewshot_examples(fewshot_examples)
+        self.cot_time_examples = [cot_time_ex1, cot_time_ex2]
+        self.cot_response_examples = [cot_response_ex1, cot_response_ex2]
+        self.client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    def _make_fewshot_examples(
+        self, fewshot_examples: List[Dict[str, Union[str, List[str]]]]
+    ) -> Dict[str, List[Dict[str, str]]]:
+        delayed, instant = [], []
+        for ex in fewshot_examples:
+            delayed_ex = {
+                "context": "\n".join([f"{spk}: {utt}" for spk, utt in zip(ex["speaker_list"], ex["context"])]),
+                "target_speaker": ex["target_speaker"],
+                "time_elapsed": ex["time_elapsed"],
+                "response": ex["timely_response"],
+            }
+            instant_ex = {
+                "context": "\n".join([f"{spk}: {utt}" for spk, utt in zip(ex["speaker_list"], ex["context"])]),
+                "target_speaker": ex["target_speaker"],
+                "time_elapsed": "0 minutes",
+                "response": ex["untimely_response"],
+            }
+            delayed.append(delayed_ex)
+            instant.append(instant_ex)
+        return {"delayed": delayed, "instant": instant}
+
+    def make_prompt(
+        self, task: str, example: Dict[str, Union[str, List[str]]], **kwargs
+    ) -> Tuple[str, str, Optional[pydantic.BaseModel]]:
+        history = "\n".join([f"{spk}: {utt}" for spk, utt in zip(example["speaker_list"], example["context"])])
+        sampled_exs = [random.choice(self.fewshot_examples["delayed"]), random.choice(self.fewshot_examples["instant"])]
+        random.shuffle(sampled_exs)
+        cot_exs = (
+            random.sample(self.cot_time_examples, 2) if task == "time" else random.sample(self.cot_response_examples, 2)
+        )
+
+        system_prompt, user_prompt = get_instruction(task=task, icl_method=kwargs.get("icl_method", "zeroshot"))
+        reasoning_str = '"reasoning" (str) and ' if kwargs.get("icl_method", "zeroshot") == "cot" else ""
+        output_str = '"answer" (digit + unit (e.g., 5 minutes))' if task == "time" else '"answer" (response)'
+        system_prompt = system_prompt.format(
+            output_format=f"\n\nOutput in JSON format with keys: {reasoning_str}{output_str}. Do not include any other text."
+        )
+        response_format = None
+
+        user_prompt = user_prompt.format(
+            context=history,
+            target_speaker=example["target_speaker"],
+            time_elapsed=example["time_elapsed"],
+            ex1_context=sampled_exs[0]["context"],
+            ex1_target_speaker=sampled_exs[0]["target_speaker"],
+            ex1_time_elapsed=sampled_exs[0]["time_elapsed"],
+            ex1_response=sampled_exs[0]["response"],
+            ex2_context=sampled_exs[1]["context"],
+            ex2_target_speaker=sampled_exs[1]["target_speaker"],
+            ex2_time_elapsed=sampled_exs[1]["time_elapsed"],
+            ex2_response=sampled_exs[1]["response"],
+            cot_ex1=cot_exs[0],
+            cot_ex2=cot_exs[1],
+        )
+        return system_prompt, user_prompt, response_format
+
+    def generate(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
+        max_retries = kwargs.get("max_retries", 3)
+        for attempt in range(max_retries):
+            try:
+                completion = self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=kwargs.get("max_new_tokens", 100),
+                    temperature=kwargs.get("temperature", 1.0),
+                    top_p=kwargs.get("top_p", 0.95),
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                parsed = re.sub(r"^```(?:json)?\s*|\s*```$", "", completion.content[0].text.strip())
+                parsed = json.loads(parsed)
+                return parsed["answer"]
+            except (json.JSONDecodeError, pydantic.ValidationError) as e:
+                if attempt == max_retries - 1:
+                    print(f"Failed after {max_retries} attempts. Error: {str(e)}")
+                    return "Error: Invalid response format"
+                print(f"Attempt {attempt + 1} failed. Retrying...")
+                continue
+
+
 class HfModel(BaseModel):
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name)
@@ -237,16 +327,41 @@ class HfModel(BaseModel):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def make_prompt(self, task: str, example: Dict[str, Union[str, List[str]]], **kwargs) -> str:
-        prompt = f"<spk> {example['speaker_list'][0]}: <utt> {example['context'][0]} "
-        prompt += " ".join(
-            [
-                f"<spk> {spk}: <time> 0 minutes later <utt> {utt}"
-                for spk, utt in zip(example["speaker_list"][1:], example["context"][1:])
-            ]
-        )
-        prompt += f" <spk> {example['target_speaker']}: <time>"
-        if task == "response":
-            prompt += f" {example['time_elapsed']} later <utt>"
+        no_special_tokens = kwargs.get("no_special_tokens", False)
+        utterance_first = kwargs.get("utterance_first", False)
+        if no_special_tokens:
+            prompt = f"{example['speaker_list'][0]}: {example['context'][0]} "
+            prompt += " ".join(
+                [
+                    f"{spk}: 0 minutes later {utt}"
+                    for spk, utt in zip(example["speaker_list"][1:], example["context"][1:])
+                ]
+            )
+            prompt += f" {example['target_speaker']}:"
+            if task == "response":
+                prompt += f" {example['time_elapsed']} later"
+        else:
+            prompt = f"<spk> {example['speaker_list'][0]}: <utt> {example['context'][0]} "
+            if utterance_first:
+                prompt += " ".join(
+                    [
+                        f"<spk> {spk}: <utt> {utt} <time> 0 minutes later"
+                        for spk, utt in zip(example["speaker_list"][1:], example["context"][1:])
+                    ]
+                )
+                prompt += f" <spk> {example['target_speaker']}: <utt>"
+                if task == "time":
+                    prompt += f" {example['timely_response']} <time>"
+            else:
+                prompt += " ".join(
+                    [
+                        f"<spk> {spk}: <time> 0 minutes later <utt> {utt}"
+                        for spk, utt in zip(example["speaker_list"][1:], example["context"][1:])
+                    ]
+                )
+                prompt += f" <spk> {example['target_speaker']}: <time>"
+                if task == "response":
+                    prompt += f" {example['time_elapsed']} later <utt>"
         return "", prompt, None
 
     def generate(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
