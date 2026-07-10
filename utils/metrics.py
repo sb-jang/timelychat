@@ -1,8 +1,10 @@
 from typing import List
 
 import numpy as np
-from evaluate import load
-from torchmetrics.text import ROUGEScore, SacreBLEUScore
+
+# NOTE: heavy deps (torchmetrics, evaluate) are imported lazily inside the
+# text-generation metrics so the numeric timing metrics (rmsle/precision/recall/
+# f1_score/fpr) can be used from saved result files without the full GPU stack.
 
 
 def rmsle(y_true: List[float], y_pred: List[float]) -> float:
@@ -13,6 +15,8 @@ def rmsle(y_true: List[float], y_pred: List[float]) -> float:
 
 
 def bleu(refs: List[str], preds: List[str]) -> float:
+    from torchmetrics.text import SacreBLEUScore
+
     refs = [[ref] for ref in refs]
     scorer = SacreBLEUScore(n_gram=2)
     bleu_score = scorer(preds, refs).item()
@@ -20,12 +24,16 @@ def bleu(refs: List[str], preds: List[str]) -> float:
 
 
 def rouge(refs: List[str], preds: List[str]) -> float:
+    from torchmetrics.text import ROUGEScore
+
     scorer = ROUGEScore()
     rouge_scores = scorer(preds, refs)
     return rouge_scores["rougeL_fmeasure"].item() * 100
 
 
 def bertscore(refs: List[str], preds: List[str]) -> float:
+    from evaluate import load
+
     scorer = load("bertscore")
     bertscore = scorer.compute(predictions=preds, references=refs, lang="en")
     num_examples = len(preds)

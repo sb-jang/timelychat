@@ -90,6 +90,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Rebuttal work: ignore OMC tool state and large raw eval dumps,
+# but keep the small E4 generation outputs under results/e4/.
+.omc/
+/results/*.jsonl
+!/results/e4/
+
 # Spyder project settings
 .spyderproject
 .spyproject
