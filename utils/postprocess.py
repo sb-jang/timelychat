@@ -120,6 +120,25 @@ def convert_to_minutes(time_interval: str) -> float:
     return 0.0
 
 
+def format_minutes(minutes: float) -> str:
+    """Inverse of convert_to_minutes: render a delay the way the dataset writes it.
+
+    The benchmark's `time_elapsed` uses natural units ("30 minutes", "2 hours",
+    "1 day"), and dialog-level simulation feeds the delay back into both the agent's
+    context and the judge's transcript. Rendering it as raw minutes leaks strings like
+    "10080 minutes later" into the prompt, which agents then echo verbatim.
+    """
+    if minutes <= 0:
+        return "0 minutes"
+
+    for size, unit in ((1440, "day"), (60, "hour"), (1, "minute")):
+        if minutes >= size:
+            value = minutes / size
+            value = int(value) if float(value).is_integer() else round(value, 1)
+            return f"{value} {unit}" if value == 1 else f"{value} {unit}s"
+    return "0 minutes"
+
+
 def convert_to_minutes_cot(time_interval: str) -> float:
     answer_pattern = re.compile(
         r"Therefore, the answer:\s*(\d*\.?\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\s*(seconds?|minutes?|hours?|days?|weeks?)",

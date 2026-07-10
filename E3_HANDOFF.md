@@ -1,143 +1,222 @@
-# E3 Handoff — Alternative User Simulator Re-evaluation (GPU server)
+# E3 Handoff — Alternative User Simulator Re-evaluation
 
-Purpose: resume **E3** (rebuttal experiment) on a GPU server. E3 re-runs the
-dialog-level evaluation with an **alternative user simulator** (Claude or
-LLaMA-70B instead of GPT-4o) and checks that model **rankings are preserved**.
-Combined with the existing cross-judge check (Appendix C.5) and the cross-
-generator check (E4), this completes a **3-axis robustness** story
-(generator · simulator · judge) for reviewer **sV8H #4**.
+**Status: code complete and verified; v2 simulation runs were in flight when this was written.**
+Read §7 first if you are resuming — it tells you exactly where to pick up.
 
-This doc is self-contained: branch state, environment, the one code change
-needed, exact run commands, and acceptance criteria.
+E3 answers reviewer **sV8H #4**: are the dialog-level conclusions an artifact of the
+**GPT-4o user simulator**? We re-simulate the same dialogs with **Claude Sonnet 4.5**
+as the user, re-judge with the *same* judge, and compare rankings. Together with the
+cross-judge check (Appendix C.5) and the cross-generator check (E4), this completes a
+3-axis robustness story (generator · simulator · judge).
 
 ---
 
-## 0. Repo / branch state
+## 0. Repo / branch
 
 - Remote: `git@github.com:sb-jang/timelychat.git`
-- Work branch: **`rebuttal-experiments`** (branched off `origin/anonymize`, the
-  full pipeline: `laaj.py`, `AnthropicModel`, F1/FPR metrics, ablation flags).
-- Do NOT use `main` — it is an older trimmed public branch missing `laaj.py`,
-  the Anthropic model class, and the timing-classification metrics.
+- Work branch: **`rebuttal-experiments`** (off `origin/anonymize`). Do **not** use `main`.
 
 ```bash
-git fetch origin
-git checkout rebuttal-experiments   # or: git checkout -b rebuttal-experiments origin/rebuttal-experiments
+git fetch origin && git checkout rebuttal-experiments
 ```
 
-New files added this session (all committed on this branch):
-- `analysis/significance.py`  — E2-a sign test (done)
-- `analysis/bucket_accuracy.py`, `analysis/timing_metrics_from_file.py`,
-  `analysis/dialog_stats.py`, `analysis/buckets.py` — E2-b/-c/-d aggregators (verified)
-- `analysis/compare_order.py`, `datagen/generate_dialog.py` — E4 (done)
-- `results/e4/*.jsonl` — E4 outputs (GPT-4o + Claude, both orders)
-- `utils/metrics.py` — heavy imports (torchmetrics/evaluate) made lazy
-
-## 1. Environment (server)
+## 1. Environment
 
 ```bash
-cd timelychat
 uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -r requirements.txt        # torch, vllm, transformers, datasets, openai, anthropic, ...
-# API keys: the local machine kept them in ~/.zshrc. On the server, export:
-export ANTHROPIC_API_KEY=...   # valid (verified this session)
-export OPENAI_API_KEY=...      # needs an account WITH credit (local key hit 429 insufficient_quota until topped up)
-# NOTE: keys were exposed in a chat transcript this session -> ROTATE them.
+uv pip install -r requirements.txt
+uv pip install scipy          # NOT in requirements.txt; analysis/ needs it
+export ANTHROPIC_API_KEY=...
+export OPENAI_API_KEY=...
 ```
+
+> **Rotate both keys.** They were pasted into chat transcripts in two separate sessions.
+
+> **`scripts/*.sh` currently read the keys out of `~/.zshrc`** (`grep '^export OPENAI_API_KEY' ~/.zshrc`).
+> That is machine-specific and must be replaced with a plain `${OPENAI_API_KEY:?}` /
+> `${ANTHROPIC_API_KEY:?}` read. It was not fixed in place because the scripts were
+> executing at the time (bash reads a script by byte offset; editing a running script
+> corrupts it). **This is the first thing to do on resume.**
 
 Models / data:
-- Agent (TIMER): `seongbo/timer-3b` (HF seq2seq, `--model-type hf`)
-- Baselines: `meta-llama/Llama-3.1-8B-Instruct`, `...-70B-Instruct` (vLLM,
-  `--model-type vllm`, needs 4×A100 for 70B), `gpt-4o`/`gpt-3.5` (`--model-type openai`)
-- Benchmark: `load_dataset("anonymous17711771/timelychat", split="eval")` (324 dialogs; `seongbo/timelychat` is the public mirror, eval split only)
+- Agent (TIMER): `seongbo/timer-3b` — `--model-type hf`. Weights are sha256-identical to
+  `anonymous17711771/timer-3b` from the README (verified), so either ID works.
+- Baselines: `gpt-4o`, `gpt-3.5-turbo` (`--model-type openai`),
+  `meta-llama/Llama-3.1-8B-Instruct` (`--model-type vllm`).
+- Benchmark: `load_dataset("anonymous17711771/timelychat", split="eval")` — 324 dialogs.
 
-## 2. Overall rebuttal status (context)
+## 2. Scope decisions already made
+
+| Decision | Value | Why |
+|---|---|---|
+| Systems | timer-3b, gpt-4o, gpt-3.5-turbo, Llama-3.1-8B | **70B dropped**: needs ~4 GPUs, only GPU 0 was free |
+| Subsample | `n=100`, `--seed 0`, identical idx across both arms | E3 is a robustness check; matched subsample makes the rank comparison valid |
+| Turns | `--num-turns 10` | matches README |
+| Judge | `claude-sonnet-4-5` for **both** arms | E3 holds the judge fixed and varies only the simulator |
+| Llama parse failures | reproduce the paper, report the rate | see §5 |
+
+## 3. What changed in the code (all committed on this branch)
+
+`evaluate_dialog-level.py`
+- `make_simulator(name)` routes on the model name: `gpt-*` → OpenAI, `claude-*` → Anthropic.
+  Previously `--simulator` only swapped the model *string* and always called OpenAI, and a
+  module-level `OpenAI(api_key=os.environ["OPENAI_API_KEY"])` raised `KeyError` at import
+  even for a Claude run. Clients are now constructed lazily inside the factory.
+- Saves `{idx, context, alt_speaker_list, time_elapseds, raw_time_outputs}` — the schema
+  `laaj.py` actually reads. Output path is now deterministic (no timestamp):
+  `results/dialog-level_<model>_<simulator>_T<turns>_n<N>_seed<S>.jsonl`.
+- `--num-dialogs`, `--seed`, `--workers`. Dialogs run in a `ThreadPoolExecutor`; for
+  `hf`/`vllm` agents `agent.generate` is serialized under a lock so only the simulator's
+  API calls overlap.
+- `SimulatorRefusal`: Claude returns `stop_reason="refusal"` on some conversations,
+  *deterministically*, so retrying cannot help. That dialog is dropped and the run
+  continues. A transient null parse (`parsed_output is None`) is still retried 3×,
+  mirroring `laaj.py:38`. On retry exhaustion it raises rather than skipping, because
+  silently dropping a dialog would break the matched subsample.
+- Delays are stored via `format_minutes(...)`, not `f"{int(...)} minutes"` (see §4, defect 9).
+
+`timelychat/models.py`
+- New `render_history(example)`: renders a delayed turn as `"A: (30 minutes later) utt"`
+  and an immediate one as `"A: utt"`. Used by `VLLMModel` / `OpenAIModel` / `AnthropicModel`.
+  When `example` has no `time_elapseds` (i.e. turn-level), the output is **byte-identical to
+  the old rendering** — verified, so E2/turn-level results are unaffected.
+- `HfModel` still hardcodes `"0 minutes later"` for every context turn. **This is intentional**
+  (TIMER's training format) and confirmed by the author. Do not "fix" it.
+
+`utils/postprocess.py`
+- New `format_minutes(minutes)` — exact inverse of `convert_to_minutes` (round-trip verified).
+  `format_minutes(0) == "0 minutes"`, the literal `laaj.py:92` and `HfModel` depend on.
+
+`laaj.py`
+- `--input-file` (bypasses the glob) and `--tag` (output filename suffix). The old glob
+  `./results/{setting}_{model}_response_{icl}*.jsonl` requires a `_response_` segment that
+  dialog-level filenames never had → `FileNotFoundError`; and the output name omitted the
+  simulator, so the two arms overwrote each other. The turn-level glob path is untouched.
+
+New `analysis/`
+- `audit_time_parse.py` — gate against silent time-parse failures (§5).
+- `align_subsample.py` — force every arm onto the identical idx set; idempotent.
+- `compare_simulators.py` — per-metric mean ± 95% CI for both arms, ranking under each,
+  and whether a rank flip is *meaningful* (CIs disjoint) or noise. Prints an explicit
+  `E3 PASSES/FAILS` verdict and the paper's headline claim per metric.
+
+New `scripts/`
+- `run_e3_api.sh` — 4 OpenAI-agent runs (sequential, `--workers 32`).
+- `run_e3_gpu.sh` — 4 local-agent runs (sequential, GPU 0, `--workers 8`, `--num-gpus 1`).
+- `run_e3_after_sim.sh` — waits for all 8, then align → audit gate → judge → compare.
+  All three skip work whose output already exists, so they are safe to re-run.
+
+## 4. Two protocol defects found by comparing against the paper's own README table
+
+v1 reproduced **Llama-8B almost exactly** (Coh 3.03 vs 2.97, DA 2.28 vs 2.38, TS 2.27 vs 2.30)
+yet put **TIMER-3B last** on Delay-Appropriateness where the paper has it first. Seeding
+(first utterance only), checkpoint, judge, simulator and CLI flags were each confirmed to
+match the paper. The cause was two real defects:
+
+8. **Prompted agents never saw the delays they had produced.** `VLLMModel`/`OpenAIModel`/
+   `AnthropicModel` built history as `f"{spk}: {utt}"`, with no elapsed time. In dialog-level
+   simulation the agent generates its own delays, so it must see them on later turns.
+   This is why v1's Time-Specificity was pressed flat at 1.5–2.3 for *every* system — no
+   agent could ground a response in elapsed time. Fixed by `render_history()`.
+9. **Delays were rendered to the agent in raw minutes.** `"1 week"` → `"10080 minutes"`.
+   Harmless in v1 (only the judge saw it); once fix 8 put the delay into the agent's prompt,
+   agents echoed it: `"(10080 minutes later) Wow, 10080 minutes later! Time really flies"`.
+   Fixed by `format_minutes()`.
+
+**Role mapping is correct as-is:** `agent_speaker = target_speaker` (`evaluate_dialog-level.py`).
+The delayed speaker is the agent, consistent with `simulator_prompt` ("agent responds after the
+elapsed time"; "user … without any delay") and the Delay-Appropriateness rubric ("the extent to
+which *the agent* poses delays"). 157/324 eval dialogs are seeded by the agent's own utterance;
+the loop condition already handles who speaks first.
+
+## 5. Known validity caveats (must appear in the write-up)
+
+- **Silent time-parse failures.** `convert_to_minutes` returns `0.0` on no-match
+  (`utils/postprocess.py`), and that is written as an ordinary `"0 minutes"` — indistinguishable
+  from a deliberate no-delay, which is exactly what Delay-Appropriateness scores.
+  `OpenAIModel.generate` even returns the literal string `"Error: Invalid response format"` after
+  exhausting retries, which would become `0 minutes`. Every record now stores `raw_time_outputs`;
+  `analysis/audit_time_parse.py` measures the rate and gates the judge stage at 5%.
+  - timer-3b, gpt-4o, gpt-3.5: **0.0%**.
+  - **Llama-3.1-8B: 8.4% (gpt-4o sim) / 11.0% (claude sim)** in v1. Root cause:
+    `VLLMModel.make_prompt` passes `output_format=""`, so the vLLM path gets no JSON instruction
+    and no schema, unlike the OpenAI/Anthropic paths. `evaluate_turn-level.py` uses the same
+    `get_model`, so the paper's published Llama numbers share this behavior. **Decision (author):
+    reproduce the paper; do not fix the baseline.** Llama is `--exempt`ed from the gate so its
+    rate is *reported*, not hidden. The two arms differ by 2.6pp, so Llama's own cross-arm
+    comparison is partly confounded by parse noise.
+- **Claude refuses some conversations.** Llama hallucinated a fake Harvard COVID-19 vaccine study
+  with a fake *Lancet* publication and a fake lead researcher, and Claude declined to continue it
+  (`stop_reason="refusal"`, eval idx 86). Deterministic for a fixed prefix, but the prefix is
+  resampled each run (`temperature=1.0`), so it may or may not recur. `align_subsample.py` exists
+  precisely so that a dialog lost in one arm is removed from all arms.
+- **n=100, not the full 324.** Both arms use the same 100 (seed 0), so the *rank* comparison is
+  matched; absolute CIs are wider than the paper's.
+- **timer-3b exceeds its 512-token tokenizer limit** on long simulated dialogs. T5 uses relative
+  position bias and `HfModel.generate` never passes `truncation=True`, so nothing is cut.
+  Verified harmless: all 500 v1 predictions parsed into 8 well-formed time expressions, 0% masked.
+
+## 6. How to run (end to end, ~2h)
+
+```bash
+source .venv/bin/activate
+export ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
+
+./scripts/run_e3_api.sh        # 4 runs, ~40 min  (background-safe)
+./scripts/run_e3_gpu.sh        # 4 runs, ~1.5 h   (GPU 0; run concurrently with the above)
+./scripts/run_e3_after_sim.sh  # waits for all 8, then align -> audit -> judge -> compare
+```
+
+Final verdict lands in `results/e3_verdict.txt`.
+
+Sanity checks the chain already performs:
+- every simulation file has 100 lines and identical idx sets across arms;
+- each judge file has `100 × 3 = 300` rows (Coherence / Delay-Appropriateness / Time-Specificity);
+- fallback rows (`"Failed after 3 attempts"`) < 2% — v1 saw at most 3/300;
+- masked parse failures ≤ 5% for every non-exempt system.
+
+## 7. Where to pick up
+
+1. **Make `scripts/*.sh` read the API keys from the environment**, not from `~/.zshrc`.
+2. Check whether the v2 runs finished: `ls results/dialog-level_*_T10_n100_seed0.jsonl | wc -l`
+   should be 8. If not, re-run the two arm scripts (they skip completed work).
+3. Read `results/e3_verdict.txt`.
+4. **The decisive question: does the baseline (GPT-4o-simulator) arm now reproduce the paper's
+   Figure 3 — TIMER-3B first on Delay-Appropriateness (2.91) and Time-Specificity (2.76),
+   GPT-4o first on Coherence (4.05)?**
+   - If yes: E3 can be reported. v1 already showed the ranking is near-identical across the two
+     simulators (2 of 3 metrics identical; the third a 3rd/4th swap with heavily overlapping CIs),
+     and each agent's delay rate was nearly the same under both simulators (gpt-4o 449 vs 447
+     zero-delay turns out of 500; gpt-3.5 118 vs 127). That is the answer to sV8H #4.
+   - If no: the remaining gap is *not* seeding, checkpoint, judge, simulator, role mapping, or
+     the two defects in §4 — all of those were checked. Diff the agent prompt against the
+     paper-era dialog-level script if it can be recovered.
+
+Paper's dialog-level table, for comparison (README §Results):
+
+| Model | Coherence | Delay Appropriateness | Time Specificity |
+|---|---|---|---|
+| Llama 3.1 8B | 2.97 | 2.38 | 2.30 |
+| GPT-3.5 | 3.17 | 1.86 | 1.13 |
+| GPT-4o | **4.05** | 2.65 | 1.57 |
+| TIMER-3B | 3.30 | **2.91** | **2.76** |
+
+v1 results (superseded, kept as evidence for §4) are in `results/e3_v1_agent-blind-to-delays/`,
+which is gitignored — copy it manually if you move machines.
+
+## 8. Rest of the rebuttal (unchanged)
 
 | Exp | Status |
 |---|---|
-| E2-a sign test | DONE — dialog-level human-eval p≈0.82–0.90 (n.s.); turn-level time-spec p<0.001 (sig win) |
-| E2-b/-c/-d | Aggregators written+verified. Need real `results/` files: main `timer-3b` time outputs + **dialog-level** laaj judge files (only turn-level ones copied so far) |
-| E4 order bias | DONE — GPT-4o + Claude, no significant order bias on any measure (INSTANT length p=0.059 borderline but null on Claude → noise) |
-| **E3 alt simulator** | **THIS DOC — needs GPU** |
-| E1 55K audit | Pending — 55K train is HF private (needs HF token) |
+| E2-a sign test | DONE — dialog-level human-eval p≈0.82–0.90 (n.s.); turn-level time-spec p<0.001 |
+| E2-b/-c/-d | Aggregators written + verified. E2-b needs the **baseline-arm** dialog-level judge files this experiment produces. E2-c/-d still need the main `timer-3b` turn-level TIME outputs. |
+| E4 order bias | DONE — no significant order bias (GPT-4o + Claude) |
+| **E3 alt simulator** | **This doc — v2 runs in flight** |
+| E1 55K audit | Pending — 55K train split is HF-private, needs a token (`HF_TOKEN` unset here) |
 | Response drafts | Pending (no API needed) |
 
-## 3. E3 objective
+## 9. Bring back to the local machine
 
-Show the dialog-level conclusions (TIMER-3B highest **delay-appropriateness**
-and **time-specificity**; GPT-4o highest coherence) are **not an artifact of the
-GPT-4o user simulator**. Swap the simulator, re-simulate, re-judge, compare ranks.
-
-## 4. Current code state relevant to E3
-
-- `evaluate_dialog-level.py`
-  - Simulates `--num-turns` interactions between an agent and a **user simulator**.
-  - **The simulator is hardwired to the OpenAI client** (module-level `client =
-    OpenAI(...)` at ~L16, and `client.beta.chat.completions.parse(model=args.simulator, ...)`
-    at ~L48). `--simulator` only changes the model *string*, still via OpenAI.
-  - Saves `{"context", "speaker_list", "time_elapsed"}` per dialog to
-    `results/dialog-level_<model>_<simulator>_T<turns>_<ts>.jsonl`.
-- `timelychat/models.py` — has `AnthropicModel` and `--model-type anthropic`
-  for the **agent**; simulator is separate (see above).
-- `laaj.py` — Claude Sonnet 4.5 dialog-level judge. Reads `--setting dialog-level`
-  files and expects fields **`alt_speaker_list`** and **`time_elapseds`** (plural)
-  plus `context`.
-- `analysis/dialog_stats.py` — aggregates laaj per-example scores into
-  n/mean/std/95% CI + Welch t-test vs a reference system (use for rank check).
-
-### ⚠️ Known gap to fix (schema mismatch)
-`evaluate_dialog-level.py` writes `speaker_list` / `time_elapsed`, but `laaj.py`
-dialog-level reads `alt_speaker_list` / `time_elapseds`. Running laaj on the
-dialog output as-is will `KeyError`. Fix by either renaming on save in
-`evaluate_dialog-level.py` (preferred) or adding an adapter step.
-
-## 5. Tasks (in order)
-
-1. **Add simulator routing** to `evaluate_dialog-level.py` so `--simulator`
-   selects the backend, not just the model name:
-   - `gpt-4o` / `gpt-3.5` → OpenAI (existing path)
-   - `claude-sonnet-4-5` → Anthropic (`anthropic.Anthropic().beta.messages.parse`,
-     `betas=["structured-outputs-2025-11-13"]`, `output_format=Output`) — mirror the
-     pattern already used in `laaj.py` and in `datagen/generate_dialog.py::make_caller`.
-   - (optional) `meta-llama/Llama-3.1-70B-Instruct` → vLLM.
-   Keep `Output` (pydantic `answer: str`) as the structured schema.
-2. **Fix the save schema** so laaj can consume it: write `alt_speaker_list`
-   (= the user/agent role list) and `time_elapseds` (list) instead of
-   `speaker_list` / `time_elapsed`.
-3. **Re-simulate** all 5 systems with the ALT simulator (primary run = the
-   original used GPT-4o; alt = Claude Sonnet 4.5, and if feasible LLaMA-70B):
-   ```bash
-   for M in seongbo/timer-3b gpt-4o gpt-3.5 meta-llama/Llama-3.1-8B-Instruct meta-llama/Llama-3.1-70B-Instruct; do
-     python evaluate_dialog-level.py --model-type <hf|openai|vllm> --model-name $M \
-       --simulator claude-sonnet-4-5 --num-turns 10
-   done
-   ```
-   (Match the paper: sample dialogs with ≥1 delayed response as the seed first turn.)
-4. **Judge** the simulated dialogs with the SAME judge (Claude Sonnet 4.5):
-   ```bash
-   python laaj.py --setting dialog-level --model-name <model> --evaluator claude-sonnet-4-5
-   ```
-5. **Compare ranks** across simulators:
-   ```bash
-   python -m analysis.dialog_stats \
-     timer=results/claude-sonnet-4-5-eval_dialog-level_seongbo--timer-3b_.jsonl \
-     gpt-4o=results/claude-sonnet-4-5-eval_dialog-level_gpt-4o_.jsonl \
-     ... --ref timer
-   ```
-   Do this for the GPT-4o-simulator scores and the Claude-simulator scores;
-   report whether the ranking (TIMER top on delay-appr / time-spec) holds.
-
-## 6. Acceptance criteria
-
-- E3 passes if, under the alternative simulator, **TIMER-3B still ranks highest
-  on delay-appropriateness and time-specificity** and GPT-4o still leads
-  coherence (i.e., Figure 3 ordering preserved). Report per-system mean ± 95% CI
-  and note any rank changes honestly.
-
-## 7. Bring back to the local machine
-
-- The dialog-level laaj score files (`results/claude-sonnet-4-5-eval_dialog-level_*`)
-  — these also unblock **E2-b** (Fig 3 CI) locally via `analysis/dialog_stats.py`.
-- The main `timer-3b` turn-level TIME outputs
-  (`results/turn-level_seongbo--timer-3b_time_zeroshot_*.jsonl` and `..._incremental_*`)
-  — unblock **E2-c/-d** locally (bucket accuracy + Table 2 F1/FPR reproduction).
+- `results/claude-sonnet-4-5-eval_dialog-level_*_sim-*.jsonl` (both arms) — also unblocks **E2-b**.
+- `results/dialog-level_*.jsonl` raw simulated dialogs, so the judge can be re-run without GPUs.
+- The main `timer-3b` **turn-level** TIME outputs — still needed for **E2-c/-d**.

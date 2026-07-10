@@ -22,6 +22,24 @@ from timelychat.prompts import (
 )
 
 
+def render_history(example: Dict[str, Union[str, List[str]]]) -> str:
+    """Render the dialogue context for a prompted (non-seq2seq) agent.
+
+    In dialog-level simulation the agent produces its own delays, so it must see them
+    on later turns: a delayed turn is rendered "A: (30 minutes later) utt", an
+    immediate one stays "A: utt". Turn-level evaluation passes no `time_elapseds`
+    (its context is entirely instantaneous), and then this is the original rendering.
+    """
+    speakers, context = example["speaker_list"], example["context"]
+    time_elapseds = example.get("time_elapseds")
+    if not time_elapseds:
+        return "\n".join(f"{spk}: {utt}" for spk, utt in zip(speakers, context))
+    return "\n".join(
+        f"{spk}: {utt}" if time == "0 minutes" else f"{spk}: ({time} later) {utt}"
+        for spk, time, utt in zip(speakers, time_elapseds, context)
+    )
+
+
 class BaseModel:
     def __init__(self, model_name: str):
         self.model_name = model_name
@@ -83,7 +101,7 @@ class VLLMModel(BaseModel):
     def make_prompt(
         self, task: str, example: Dict[str, Union[str, List[str]]], **kwargs
     ) -> Tuple[str, str, Optional[pydantic.BaseModel]]:
-        history = "\n".join([f"{spk}: {utt}" for spk, utt in zip(example["speaker_list"], example["context"])])
+        history = render_history(example)
         sampled_exs = [random.choice(self.fewshot_examples["delayed"]), random.choice(self.fewshot_examples["instant"])]
         random.shuffle(sampled_exs)
         cot_exs = (
@@ -156,7 +174,7 @@ class OpenAIModel(BaseModel):
     def make_prompt(
         self, task: str, example: Dict[str, Union[str, List[str]]], **kwargs
     ) -> Tuple[str, str, Optional[pydantic.BaseModel]]:
-        history = "\n".join([f"{spk}: {utt}" for spk, utt in zip(example["speaker_list"], example["context"])])
+        history = render_history(example)
         sampled_exs = [random.choice(self.fewshot_examples["delayed"]), random.choice(self.fewshot_examples["instant"])]
         random.shuffle(sampled_exs)
         cot_exs = (
@@ -264,7 +282,7 @@ class AnthropicModel(BaseModel):
     def make_prompt(
         self, task: str, example: Dict[str, Union[str, List[str]]], **kwargs
     ) -> Tuple[str, str, Optional[pydantic.BaseModel]]:
-        history = "\n".join([f"{spk}: {utt}" for spk, utt in zip(example["speaker_list"], example["context"])])
+        history = render_history(example)
         sampled_exs = [random.choice(self.fewshot_examples["delayed"]), random.choice(self.fewshot_examples["instant"])]
         random.shuffle(sampled_exs)
         cot_exs = (

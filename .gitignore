@@ -94,6 +94,10 @@ venv.bak/
 # but keep the small E4 generation outputs under results/e4/.
 .omc/
 /results/*.jsonl
+/results/*.txt
+/results/logs/
+# Subdirectory dumps (e.g. archived E3 runs) -- /results/*.jsonl does not match these.
+/results/e3_*/
 !/results/e4/
 
 # Spyder project settings

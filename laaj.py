@@ -51,12 +51,15 @@ async def evaluate_example(
 
 async def main(args: argparse.Namespace) -> None:
     model_name = args.model_name.replace("/", "--")
-    icl_method = f"{args.icl_method}" if args.icl_method else ""
-    file_pattern = f"./results/{args.setting}_{model_name}_response_{icl_method}*.jsonl"
-    matched_files = sorted(glob.glob(file_pattern))
-    if not matched_files:
-        raise FileNotFoundError(f"No files matched for pattern: {file_pattern}")
-    file_path = matched_files[-1]
+    if args.input_file:
+        file_path = args.input_file
+    else:
+        icl_method = f"{args.icl_method}" if args.icl_method else ""
+        file_pattern = f"./results/{args.setting}_{model_name}_response_{icl_method}*.jsonl"
+        matched_files = sorted(glob.glob(file_pattern))
+        if not matched_files:
+            raise FileNotFoundError(f"No files matched for pattern: {file_pattern}")
+        file_path = matched_files[-1]
 
     with open(file_path) as f:
         data = [json.loads(line) for line in f]
@@ -118,7 +121,8 @@ async def main(args: argparse.Namespace) -> None:
             rubric_responses.sort(key=lambda x: x["idx"])
             responses.extend(rubric_responses)
 
-    with open(f"./results/{args.evaluator}-eval_{args.setting}_{model_name}_{args.icl_method}.jsonl", "w") as f:
+    suffix = args.tag or args.icl_method
+    with open(f"./results/{args.evaluator}-eval_{args.setting}_{model_name}_{suffix}.jsonl", "w") as f:
         for response in responses:
             f.write(json.dumps(response) + "\n")
 
@@ -129,6 +133,8 @@ if __name__ == "__main__":
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--evaluator", type=str, default="claude-sonnet-4-5")
     parser.add_argument("--icl-method", type=str, default=None)
+    parser.add_argument("--input-file", type=str, default=None, help="explicit results JSONL; bypasses the glob")
+    parser.add_argument("--tag", type=str, default=None, help="output filename suffix (e.g. sim-claude-sonnet-4-5)")
     parser.add_argument("--max-iter", type=int, default=3, help="Maximum number of retry attempts for AttributeError")
     args = parser.parse_args()
     asyncio.run(main(args))
