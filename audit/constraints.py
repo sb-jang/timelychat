@@ -43,6 +43,14 @@ CONSTRAINTS = {
         "Are the speaker labels consistent and is target_speaker correctly the "
         "event-experiencing speaker who gives the timely (delayed) response?",
     ),
+    "duration_validity": (
+        "Duration Validity",
+        "The ground-truth elapsed time is a realistic duration for the narrated event: "
+        "long enough for the event to plausibly complete, and not implausibly long or "
+        "short for what the narrative describes.",
+        "Is the ground-truth time_elapsed a realistic amount of time for the narrated "
+        "event to take?",
+    ),
 }
 
 KEYS = list(CONSTRAINTS)

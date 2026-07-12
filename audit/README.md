@@ -29,6 +29,7 @@ python -m audit.aggregate_audit audit/sheets/audit_author1.csv audit/sheets/audi
 2. **Temporal Implicitness** (paper §4.1) — timely_response avoids naming the elapsed interval (no lexical shortcut).
 3. **Mutual Exclusivity** (paper §4.1) — timely/untimely responses are genuinely time-exclusive, not time-agnostic.
 4. **Speaker Consistency** (plan) — speaker labels consistent; target_speaker is the event experiencer.
+5. **Duration Validity** (plan) — the ground-truth elapsed time is a realistic duration for the narrated event.
 
 ## Author instructions
 
