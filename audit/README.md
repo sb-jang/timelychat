@@ -32,7 +32,7 @@ python -m audit.aggregate_audit audit/sheets/audit_author1.csv audit/sheets/audi
 
 ## Author instructions
 
-- Work **independently** — do not compare sheets until both are complete (Krippendorff's α needs independent judgments).
+- Work **independently** — do not compare sheets until both are complete (Cohen's κ needs independent judgments).
 - The `*__llm_pass` / `*__llm_rationale` columns are Claude's first pass, provided to
   save time. **Confirm or override every one** by putting 1 or 0 in `*__pass`.
 - The `*__note` columns are optional free text for disagreements or edge cases.
