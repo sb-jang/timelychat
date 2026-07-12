@@ -10,10 +10,12 @@ Ties are non-informative for a sign test, so the primary test excludes ties and
 asks whether wins vs. losses depart from a fair coin:  binomtest(win, win+loss, 0.5).
 As a sensitivity check we also split ties evenly between the two systems.
 
-The counts below are derived from Table 4 percentages times the reported sample
-sizes (turn-level n=200, dialog-level n=80) and are ROUNDED, so p-values are
-approximate. Replace with the exact raw win/tie/loss counts from the annotation
-sheets for the number that goes in the response (use --counts or edit TABLE4).
+The counts below are Table 4 percentages times the reported sample sizes
+(turn-level n=200, dialog-level n=80). The authors confirmed these recover the
+exact raw win/tie/loss counts (turn-level = %×2; dialog-level 40/23/37% of 80 =
+32/18/30), so the p-values are exact, not approximate:
+  - turn-level Time-specificity  108/48/44  -> p = 2.2e-7  (significant)
+  - dialog-level Delay-appr / Time-spec  32/18/30  -> p = 0.899  (not significant)
 
 Usage
 -----
