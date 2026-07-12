@@ -1,7 +1,13 @@
 # E3 Handoff — Alternative User Simulator Re-evaluation
 
-**Status: code complete and verified; v2 simulation runs were in flight when this was written.**
-Read §7 first if you are resuming — it tells you exactly where to pick up.
+**Status: DONE.** All 8 sims + 8 judge runs complete (0 fallbacks). The result and
+its framing are in `results/E3_RESULT.md`; the raw verdict is `results/e3_verdict.txt`.
+**Answer to sV8H #4: ranking is robust to the simulator swap** (Coherence preserved;
+the two rank changes are between systems with overlapping CIs). E3 is reported with
+**relative** framing (rank invariance vs our reproduced baseline), because the
+baseline does not reproduce Figure 3's absolute values — see the Caveat in
+`results/E3_RESULT.md` and §4/§7 below. No further runs are required for E3 itself;
+§7 lists the one open thread (Figure 3 absolute-value reproduction) left for later.
 
 E3 answers reviewer **sV8H #4**: are the dialog-level conclusions an artifact of the
 **GPT-4o user simulator**? We re-simulate the same dialogs with **Claude Sonnet 4.5**
@@ -175,22 +181,26 @@ Sanity checks the chain already performs:
 - fallback rows (`"Failed after 3 attempts"`) < 2% — v1 saw at most 3/300;
 - masked parse failures ≤ 5% for every non-exempt system.
 
-## 7. Where to pick up
+## 7. Status and the one open thread
 
-1. **Make `scripts/*.sh` read the API keys from the environment**, not from `~/.zshrc`.
-2. Check whether the v2 runs finished: `ls results/dialog-level_*_T10_n100_seed0.jsonl | wc -l`
-   should be 8. If not, re-run the two arm scripts (they skip completed work).
-3. Read `results/e3_verdict.txt`.
-4. **The decisive question: does the baseline (GPT-4o-simulator) arm now reproduce the paper's
-   Figure 3 — TIMER-3B first on Delay-Appropriateness (2.91) and Time-Specificity (2.76),
-   GPT-4o first on Coherence (4.05)?**
-   - If yes: E3 can be reported. v1 already showed the ranking is near-identical across the two
-     simulators (2 of 3 metrics identical; the third a 3rd/4th swap with heavily overlapping CIs),
-     and each agent's delay rate was nearly the same under both simulators (gpt-4o 449 vs 447
-     zero-delay turns out of 500; gpt-3.5 118 vs 127). That is the answer to sV8H #4.
-   - If no: the remaining gap is *not* seeding, checkpoint, judge, simulator, role mapping, or
-     the two defects in §4 — all of those were checked. Diff the agent prompt against the
-     paper-era dialog-level script if it can be recovered.
+E3 itself is **done and reported** (`results/E3_RESULT.md`). The simulator-robustness
+claim — the actual answer to sV8H #4 — is settled: ranking is preserved on Coherence
+and the two rank changes are between systems with overlapping CIs. Reported with
+relative framing (vs our reproduced baseline). The `scripts/*.sh` now read keys from
+the environment (`${VAR:?}`), no longer from `~/.zshrc`.
+
+**Open thread, deliberately deferred by the author — not required for E3:** our
+reproduced baseline (GPT-4o simulator) does not reproduce Figure 3's *absolute*
+ordering (TIMER-3B is not first on Delay-Appropriateness or Time-Specificity in our
+re-run; GPT models score higher than published, TIMER lower; Llama-8B matches almost
+exactly). The two protocol fixes in §4 moved TIMER in the right direction but did not
+close the gap. Already ruled out: seeding, checkpoint (weights sha256-identical),
+judge model, simulator, role mapping, and the two §4 defects. The most likely
+remaining suspect is the **judge-facing transcript rendering** in `laaj.py:88-96`
+(delay notation / speaker labels / rubric wording) differing from the paper-era
+dialog-level script. If that script can be recovered, diff the exact string the judge
+receives against it. This affects the paper's Figure 3 reproduction, **not** E3's
+simulator-robustness conclusion.
 
 Paper's dialog-level table, for comparison (README §Results):
 

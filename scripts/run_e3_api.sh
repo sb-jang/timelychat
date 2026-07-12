@@ -4,8 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source .venv/bin/activate
-export OPENAI_API_KEY=$(grep '^export OPENAI_API_KEY' ~/.zshrc | cut -d'"' -f2)
-export ANTHROPIC_API_KEY=$(grep '^export ANTHROPIC_API_KEY' ~/.zshrc | cut -d'"' -f2)
+: "${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}"
+: "${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in the environment}"
 mkdir -p results/logs
 
 N=100

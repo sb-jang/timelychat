@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source .venv/bin/activate
-export ANTHROPIC_API_KEY=$(grep '^export ANTHROPIC_API_KEY' ~/.zshrc | cut -d'"' -f2)
+: "${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in the environment}"
 mkdir -p results/logs
 
 N=100
