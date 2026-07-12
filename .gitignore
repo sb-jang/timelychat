@@ -115,3 +115,6 @@ venv.bak/
 
 # editor specific
 .vscode/settings.json
+# E1 audit: sampled private-dataset content and author sheets — never commit
+audit/data/
+audit/sheets/
