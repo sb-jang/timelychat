@@ -5,8 +5,7 @@
 Reports, per constraint and overall:
   * each author's pass rate,
   * the pooled pass rate,
-  * inter-annotator agreement (raw + Cohen's kappa) when 2 authors are given,
-  * how often the authors agreed with the LLM pre-verdict (if present).
+  * inter-annotator agreement (raw agreement + Cohen's kappa) when 2 authors are given.
 
 Only rows where every author filled a 1/0 for a constraint are counted; blanks are
 reported as skipped so a half-finished sheet cannot silently inflate a pass rate.
